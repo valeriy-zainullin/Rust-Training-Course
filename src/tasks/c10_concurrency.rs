@@ -1,8 +1,14 @@
 // This chapter is dedicated to the concurrency.
 
+use core::num;
+use std::cell::RefCell;
+use std::num::NonZero;
+use std::ops::{Add, AddAssign};
+use std::rc::Rc;
+use std::sync::atomic::{self, AtomicBool};
 use std::sync::mpsc::{Receiver, SendError, Sender};
 use std::sync::{Arc, Mutex, mpsc};
-use std::thread;
+use std::thread::{self, Thread};
 
 // THREADS & JOIN
 // ================================================================================================
@@ -11,7 +17,49 @@ use std::thread;
 // Spawn multiple threads to calculate squares of the provided numbers and collect the results.
 
 pub fn calculate_squares(input_numbers: Vec<i32>) -> Vec<i32> {
-    unimplemented!()
+    let num_threads = match std::thread::available_parallelism() {
+        Ok(amount) => amount.get(),
+        Err(_) => 4,
+    };
+
+    let (squares_sender, squares_receiver) = mpsc::channel();
+
+    let numbers_per_thread = (input_numbers.len() + num_threads - 1) / num_threads;
+    let mut next_number_idx = 0;
+
+    thread::scope(|scope| {
+        (0..num_threads)
+            .for_each(|thread_idx| {
+                let start = next_number_idx;
+                let end = std::cmp::min(next_number_idx + numbers_per_thread, input_numbers.len());
+                next_number_idx += numbers_per_thread;
+
+                if start >= end {
+                    return;
+                }
+
+                let this_thread_numbers = Arc::new(&input_numbers[start..end]);
+
+                let sender = squares_sender.clone();
+                scope.spawn(move || {
+                    for number in *this_thread_numbers {
+                        sender.send((thread_idx, number * number)).unwrap();
+                    }
+                });
+            });
+        
+        let mut result = (0..input_numbers.len())
+            .map(|_| {
+               squares_receiver.recv().unwrap()
+            })
+            .collect::<Vec<_>>();
+        result.sort();
+
+        result.iter()
+            .map(|(_thread_idx, square)| square)
+            .cloned()
+            .collect::<Vec<_>>()
+    })
 }
 
 // ----- 2 --------------------------------------
@@ -38,7 +86,43 @@ fn is_prime(number: u64) -> bool {
 /// - `Vec<(u64, bool)>` is a vector of the provided values along with the boolean flag whether this
 ///   value is prime.
 pub fn parallel_prime_check(numbers: Vec<u64>, number_of_threads: usize) -> Vec<(u64, bool)> {
-    unimplemented!()
+    assert!(number_of_threads >= 1);
+
+    let mut result = Vec::<(u64, bool)>::new();
+
+    for number in numbers {
+        let is_prime = AtomicBool::new(true);
+        let boundary = (number as f64).sqrt() as u64;
+        let possible_divs_per_thread = (boundary - 1 /* boundary - 2 + 1 */ + number_of_threads as u64 - 1) / number_of_threads as u64;
+        let mut next_possible_div = 2;
+
+        thread::scope(|scope| {
+            (0..number_of_threads)
+                .for_each(|_| {
+                    let this_thread_start = next_possible_div.clone();
+                    next_possible_div += possible_divs_per_thread;
+
+                    let is_prime_ref = &is_prime;
+
+                    if this_thread_start > boundary {
+                        return;
+                    }
+
+                    scope.spawn(move || {
+                        let end = std::cmp::min(boundary, this_thread_start + possible_divs_per_thread - 1);
+                        for possible_divisor in this_thread_start..=end {
+                            if number % possible_divisor == 0 {
+                                is_prime_ref.store(false, std::sync::atomic::Ordering::Relaxed);
+                            }
+                        }
+                    });
+                });
+        });
+
+        result.push((number, is_prime.load(std::sync::atomic::Ordering::Relaxed)));
+    }
+
+    result
 }
 
 // MPSC CHANNELS
@@ -56,7 +140,49 @@ fn factorial(n: u32) -> u32 {
 }
 
 pub fn parallel_factorials(numbers: Vec<u32>) -> Vec<u32> {
-    unimplemented!()
+    let num_threads = match std::thread::available_parallelism() {
+        Ok(amount) => amount.get(),
+        Err(_) => 4,
+    };
+
+    let (factorials_sender, factorials_receiver) = mpsc::channel();
+
+    let numbers_per_thread = (numbers.len() + num_threads - 1) / num_threads;
+    let mut next_number_idx = 0;
+
+    thread::scope(|scope| {
+        (0..num_threads)
+            .for_each(|thread_idx| {
+                let start = next_number_idx;
+                next_number_idx += numbers_per_thread;
+                let end = std::cmp::min(numbers.len(), next_number_idx);
+
+                if (start >= end) {
+                    return;
+                }
+
+                let this_thread_numbers = Arc::new(&numbers[start..end]);
+
+                let sender = factorials_sender.clone();
+                scope.spawn(move || {
+                    for number in *this_thread_numbers {
+                        sender.send((thread_idx, factorial(*number))).unwrap();
+                    }
+                });
+            });
+        
+        let mut result = (0..numbers.len())
+            .map(|_| {
+               factorials_receiver.recv().unwrap()
+            })
+            .collect::<Vec<_>>();
+        result.sort();
+
+        result.iter()
+            .map(|(_thread_idx, square)| square)
+            .cloned()
+            .collect::<Vec<_>>()
+    })
 }
 
 // MUTEX + ARC
@@ -73,20 +199,22 @@ pub fn parallel_factorials(numbers: Vec<u32>) -> Vec<u32> {
 
 #[derive(Clone)]
 pub struct SharedCounter {
-    value: i32,
+    value: Arc<Mutex<i32>>,
 }
 
 impl SharedCounter {
     pub fn new(initial_value: i32) -> Self {
-        unimplemented!()
+        Self { value: Arc::new(Mutex::new(initial_value)) }
     }
 
     pub fn increment(&self) {
-        unimplemented!()
+        let mut value = self.value.lock().unwrap();
+        *value += 1;
     }
 
     pub fn get_value(&self) -> i32 {
-        unimplemented!()
+        let value = self.value.lock().unwrap();
+        *value
     }
 }
 
@@ -106,24 +234,33 @@ impl SharedCounter {
 
 #[derive(Clone)]
 pub struct BankAccount {
-    balance: i32,
+    balance: Arc<Mutex<i32>>,
 }
 
 impl BankAccount {
     pub fn new(initial_balance: i32) -> Self {
-        unimplemented!()
+        Self { balance: Arc::new(Mutex::new(initial_balance)) }
     }
 
     pub fn deposit(&self, amount: i32) {
-        unimplemented!()
+        let mut balance = self.balance.lock().unwrap();
+        *balance += amount;
     }
 
     pub fn withdraw(&self, amount: i32) -> bool {
-        unimplemented!()
+        let mut balance = self.balance.lock().unwrap();
+
+        if *balance < amount {
+            false
+        } else {
+            *balance -= amount;
+            true
+        }
     }
 
     pub fn get_balance(&self) -> i32 {
-        unimplemented!()
+        let balance = self.balance.lock().unwrap();
+        *balance
     }
 }
 
@@ -156,10 +293,47 @@ impl BankAccount {
 //   - Send each task from the input list into the task_sender.
 //   - Collect all results from the result_receiver into a vector and return it.
 
-fn worker(worker_id: usize, task_receiver: Receiver<i32>, result_sender: Sender<(usize, i32)>) {
-    unimplemented!()
+fn worker(worker_id: usize, task_receiver: Arc<Mutex<Receiver<i32>>>, result_sender: Sender<(usize, i32)>) {
+    loop {
+        let receiver = task_receiver.lock().unwrap();
+        match receiver.recv() {
+            Ok(task) => {
+                let value = task;
+                let result = value * value;
+                result_sender.send((worker_id, result));
+            }
+
+            Err(_) => break
+        }
+    }
 }
 
 pub fn run_work_queue(tasks: Vec<i32>, number_of_workers: usize) -> Vec<(usize, i32)> {
-    unimplemented!()
+    thread::scope(|scope| {
+        let (task_sender, task_receiver) = mpsc::channel();
+        let (result_sender, result_receiver) = mpsc::channel();
+
+        let task_receiver = Arc::new(Mutex::new(task_receiver));
+
+        (0..number_of_workers)
+            .for_each(|thread_idx| {
+                let receiver = task_receiver.clone();
+                let sender = result_sender.clone();
+                scope.spawn(move || {
+                    worker(thread_idx, receiver, sender);
+                });
+            });
+        
+        for task in &tasks {
+            task_sender.send(*task);
+        }
+
+        let result = (0..tasks.len())
+            .map(|_| {
+               result_receiver.recv().unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        result
+    })
 }

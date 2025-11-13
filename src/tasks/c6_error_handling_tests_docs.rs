@@ -8,7 +8,10 @@
 // character of a string or an error message "Empty string" if the string is empty.
 
 pub fn first_char(text: &str) -> Result<char, String> {
-    !unimplemented!()
+    match text.chars().next() {
+        None => Result::Err(String::from("Empty string")),
+        Some(chr) => Result::Ok(chr),
+    }
 }
 
 // ----- 2 --------------------------------------
@@ -17,7 +20,23 @@ pub fn first_char(text: &str) -> Result<char, String> {
 // be parsed (if it is not an integer) return the `Err("Invalid number")` result.
 
 pub fn read_numbers_from_str(line: &str) -> Result<Vec<i32>, String> {
-    !unimplemented!()
+    let numbers_iter = line
+        .split_whitespace()
+        .map(|word| word.parse::<i32>());
+    let mut numbers = Vec::<i32>::new();
+    for number in numbers_iter {
+        match number {
+            Ok(num) => {
+                numbers.push(num);
+            }
+
+            Err(_) => {
+                return Err(String::from("Invalid number"));
+            }
+        }
+    }
+
+    Ok(numbers)
 }
 
 // OPTION
@@ -43,7 +62,10 @@ impl UserProfile {
     }
 
     pub fn get_email_domain(&self) -> Option<String> {
-        !unimplemented!()
+        match &self.email {
+            None => None,
+            Some(address) => Some(address.split_once('@')?.1.to_string()),
+        }
     }
 }
 
@@ -63,6 +85,18 @@ fn factorial(n: u32) -> u64 {
 #[cfg(test)]
 mod factorial_tests {
     // IMPLEMENT HERE:
+
+    use crate::tasks::c6_error_handling_tests_docs::factorial;
+
+    pub fn test_factorial() {
+        assert!(factorial(0) == 1);
+        assert!(factorial(1) == 1);
+        assert!(factorial(2) == 2);
+        assert!(factorial(3) == 6);
+        assert!(factorial(4) == 24);
+        assert!(factorial(5) == 120);
+        assert!(factorial(6) == 720);
+    }
 }
 
 // ----- 5 --------------------------------------
@@ -84,6 +118,22 @@ fn is_prime(number: u64) -> bool {
 #[cfg(test)]
 mod prime_tests {
     // IMPLEMENT HERE:
+
+    use crate::tasks::c6_error_handling_tests_docs::is_prime;
+
+    pub fn test_is_prime() {
+        assert!(!is_prime(1));
+        assert!(is_prime(2));
+        assert!(is_prime(3));
+        assert!(!is_prime(4));
+        assert!(is_prime(5));
+        assert!(!is_prime(6));
+        assert!(is_prime(7));
+        assert!(!is_prime(8));
+        assert!(!is_prime(9));
+        assert!(!is_prime(10));
+        assert!(is_prime(11));
+    }
 }
 
 // WRITING DOCS
@@ -103,14 +153,38 @@ mod prime_tests {
 // - Additionally white the usage example for the `TemperatureLog` in the high-level docs.
 // - For the `average` method additionally write an example of its usage.
 
+/// Stores daily history of tempreature (in degrees Celsius) for a city
+/// 
+/// #### Examples
+/// 
+/// ```
+/// use crate::tasks::c6_error_handling_tests_docs::TemperatureLog;
+/// let mut log = TemperatureLog::new("Cheboksary");
+/// log.add_reading(12.0);
+/// log.add_reading(14.0);
+/// log.add_reading(16.0);
+/// log.add_reading(18.0);
+/// println!("{}", log.average().unwrap_or(f64::NAN));
+/// ```
 #[allow(dead_code)]
 pub struct TemperatureLog {
+    /// Name of the city readings are made for
     pub city: String,
+    
+    /// Reading of temperature for the city in degrees Celsius
     pub readings: Vec<f64>,
 }
 
 #[allow(dead_code)]
 impl TemperatureLog {
+    /// Creates a new log for the specified city
+    /// 
+    /// #### Examples
+    /// 
+    /// ```
+    /// use crate::tasks::c6_error_handling_tests_docs::TemperatureLog;
+    /// let mut log = TemperatureLog::new("Cheboksary");
+    /// ```
     pub fn new(city: &str) -> Self {
         Self {
             city: city.to_string(),
@@ -118,15 +192,52 @@ impl TemperatureLog {
         }
     }
 
+    /// Adds a daily reading in degrees Celsius into log
+    /// 
+    /// #### Examples
+    /// 
+    /// ```
+    /// use crate::tasks::c6_error_handling_tests_docs::TemperatureLog;
+    /// let mut log = TemperatureLog::new("Cheboksary");
+    /// log.add_reading(12.0);
+    /// ```
     pub fn add_reading(&mut self, value: f64) {
         self.readings.push(value);
     }
 
+    /// Computes average daily temperature in degrees Celsius
+    /// 
+    /// #### Examples
+    /// 
+    /// ```
+    /// use crate::tasks::c6_error_handling_tests_docs::TemperatureLog;
+    /// let mut log = TemperatureLog::new("Cheboksary");
+    /// log.add_reading(12.0);
+    /// log.add_reading(14.0);
+    /// log.add_reading(16.0);
+    /// log.add_reading(18.0);
+    /// println!("{}", log.average().unwrap_or(f64::NAN)); // Prints 15
+    /// ```
     pub fn average(&self) -> Option<f64> {
         if self.readings.is_empty() {
             return None;
         }
         let sum_of_readings: f64 = self.readings.iter().sum();
         Some(sum_of_readings / self.readings.len() as f64)
+    }
+}
+
+mod test {
+    use core::f64;
+
+    #[test]
+    pub fn test_temperature_log_docs() {
+        use crate::tasks::c6_error_handling_tests_docs::TemperatureLog;
+        let mut log = TemperatureLog::new("Cheboksary");
+        log.add_reading(12.0);
+        log.add_reading(14.0);
+        log.add_reading(16.0);
+        log.add_reading(18.0);
+        assert!((log.average().unwrap_or(f64::NAN) - 15.0).abs() < 1e-8);
     }
 }
